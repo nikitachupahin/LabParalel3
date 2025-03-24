@@ -1,10 +1,12 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Threading;
+using LabParalel3;
 
 namespace LabParalel3
 {
-   public class ThreadPool
+    public class ThreadPool
     {
         private List<BlockingQueue<Action>> _queueList = new();
         private List<Thread> _threadsList = new();
@@ -21,6 +23,15 @@ namespace LabParalel3
 
         public int QueueListCount => _queueList.Count;
         public bool IsRunningApp => _isRunningApp;
+
+        // Лічильники для статистики
+        public int ExecutingTaskCounter { get; private set; }
+        public int WaitTaskCounter { get; private set; }
+        public float AverageExecutingTime { get; private set; }
+        public float AverageWaitingTime { get; private set; }
+
+        public List<BlockingQueue<Action>> QueueList => _queueList;
+
         public ThreadPool(int amountOfQueue = 3, int threadsPerQueue = 2)
         {
             _threadsPerQueue = threadsPerQueue;
@@ -32,13 +43,17 @@ namespace LabParalel3
             for (int i = 0; i < amountOfQueue; i++)
                 _queueList.Add(new BlockingQueue<Action>());
         }
+
         private void ExecuteTask(int queueNumber)
         {
             while (_isRunningApp)
             {
                 Action? task = null;
+                DateTime? taskEnqueueTime = null;
+
                 if (queueNumber >= _queueList.Count)
                     throw new Exception("Queue Number was out of range");
+
                 lock (_executeLocker)
                 {
                     while (_queueList[queueNumber].Count == 0 && _isContinueExecuting)
@@ -52,14 +67,37 @@ namespace LabParalel3
                             throw new ThreadInterruptedException();
                         }
                     }
+
                     if (_isContinueExecuting)
                     {
+                        taskEnqueueTime = DateTime.Now;
                         Monitor.Pulse(_executeLocker);
                         task = _queueList[queueNumber].Dequeue();
                     }
                 }
-                task?.Invoke();
-                if (_isRunningApp && _isContinueExecuting == false)
+
+                if (taskEnqueueTime != null)
+                {
+                    DateTime taskStartTime = DateTime.Now;
+                    task?.Invoke();
+                    TimeSpan taskExecutionTime = DateTime.Now - taskStartTime;
+
+                    lock (_executeLocker)
+                    {
+                        ExecutingTaskCounter++;
+                        AverageExecutingTime = ((AverageExecutingTime * (ExecutingTaskCounter - 1)) + (float)taskExecutionTime.TotalMilliseconds) / ExecutingTaskCounter;
+
+                        if (taskEnqueueTime != null)
+                        {
+                            TimeSpan waitTime = DateTime.Now - taskEnqueueTime.Value;
+
+                            WaitTaskCounter++;
+                            AverageWaitingTime = ((AverageWaitingTime * (WaitTaskCounter - 1)) + (float)waitTime.TotalMilliseconds) / WaitTaskCounter;
+                        }
+                    }
+                }
+
+                if (_isRunningApp && !_isContinueExecuting)
                 {
                     lock (_appLocker)
                     {
@@ -68,12 +106,15 @@ namespace LabParalel3
                     }
                 }
             }
+
             Console.WriteLine("Some thread stopped working");
         }
+
         public void InitiateThreads()
         {
             if (_amountOfQueue <= 0 || _threadsPerQueue <= 0)
                 throw new ArgumentOutOfRangeException();
+
             for (int i = 0; i < _amountOfQueue; i++)
             {
                 int k = i;
@@ -91,13 +132,16 @@ namespace LabParalel3
                 Monitor.Pulse(_executeLocker);
             }
         }
+
         public void StartExecuting()
         {
             if (_threadsList.Count == 0)
                 throw new Exception("Threads list is empty");
+
             foreach (var thread in _threadsList)
                 thread.Start();
         }
+
         public void PauseExecuting()
         {
             lock (_executeLocker)
@@ -106,6 +150,7 @@ namespace LabParalel3
                 Monitor.PulseAll(_executeLocker);
             }
         }
+
         public void RestartExecuting()
         {
             lock (_appLocker)
@@ -114,6 +159,7 @@ namespace LabParalel3
                 Monitor.PulseAll(_appLocker);
             }
         }
+
         public void StopExecuting()
         {
             lock (_executeLocker)
@@ -126,10 +172,12 @@ namespace LabParalel3
                     Monitor.PulseAll(_appLocker);
                 }
             }
+
             foreach (var thread in _threadsList)
                 thread.Join();
+
             Console.WriteLine("All threads were stopped");
-        } 
+        }
     }
 
 }

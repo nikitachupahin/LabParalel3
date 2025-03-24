@@ -1,12 +1,13 @@
-﻿using LabParalel3;
+﻿
+using System.Diagnostics;
 
-namespace Program
+namespace LabParalel3
 {
     class Program
     {
         static void Main()
         {
-            var threadPool = new LabParalel3.ThreadPool();
+            var threadPool = new ThreadPool();
             var taskAdder = new TaskAdder(threadPool, 6, 12);
             taskAdder.InitiateThreads();
             threadPool.InitiateThreads();
@@ -18,6 +19,7 @@ namespace Program
             Console.WriteLine("4 - Restart executing tasks");
             Console.WriteLine("5 - Stop executing tasks");
             Console.WriteLine("6 - Stop adding tasks");
+            Console.WriteLine("7 - Run test");
             Console.WriteLine("0 - Exit");
 
             while (threadPool.IsRunningApp || taskAdder.IsContinueAdding)
@@ -53,6 +55,17 @@ namespace Program
                             Console.WriteLine("[INFO] Stopping task adding...");
                             taskAdder.StopAdding();
                             break;
+                        case 7:
+                            Console.Write("Enter sleep time in milliseconds: ");
+                            if (int.TryParse(Console.ReadLine(), out int sleepTime) && sleepTime > 0)
+                            {
+                                Test(sleepTime);
+                            }
+                            else
+                            {
+                                Console.WriteLine("[ERROR] Invalid sleep time. Please enter a positive number.");
+                            }
+                            break;
                         case 0:
                             Console.WriteLine("[INFO] Exiting program...");
                             taskAdder.StopAdding();
@@ -70,6 +83,44 @@ namespace Program
             }
 
             Console.WriteLine("[INFO] Program exited successfully.");
+        }
+        public static void Test(int sleepTime)
+        {
+            float averageQueueLength = 0;
+            Stopwatch timer = new();
+            ThreadPool threadPool = new(3, 2);
+            TaskAdder taskAdder = new(threadPool, 6, 12, 2, 3);
+
+            taskAdder.InitiateThreads();
+            threadPool.InitiateThreads();
+
+            Console.WriteLine("\n[TEST] Starting test...");
+            timer.Start();
+
+            taskAdder.StartAdding();
+            threadPool.StartExecuting();
+
+            Thread.Sleep(sleepTime); 
+
+            taskAdder.StopAdding();
+            threadPool.StopExecuting();
+
+            timer.Stop();
+
+            foreach (var queue in threadPool.QueueList)
+            {
+                averageQueueLength += queue.Count;
+            }
+
+            averageQueueLength /= threadPool.QueueListCount;
+
+            Console.WriteLine("\n=== Test Results ===");
+            Console.WriteLine($"Total working time:          {timer.ElapsedMilliseconds} ms");
+            Console.WriteLine($"Average queue length:        {averageQueueLength}");
+            Console.WriteLine($"Average task execution time: {threadPool.AverageExecutingTime} ms");
+            Console.WriteLine($"Executed task count:         {threadPool.ExecutingTaskCounter}");
+            Console.WriteLine($"Average task wait time:      {threadPool.AverageWaitingTime} ms");
+            Console.WriteLine($"Waited task count:           {threadPool.WaitTaskCounter}");
         }
     }
 }
